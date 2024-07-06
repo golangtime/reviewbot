@@ -5,34 +5,48 @@ import "database/sql"
 func MigrateDB(db *sql.DB) {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS repositories (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			owner  text NOT NULL,
 			name   text NOT NULL,
 			min_approvals integer NOT NULL DEFAULT 1,
-			active bool NOT NULL DEFAULT true
+			active bool NOT NULL DEFAULT true,
+			provider text NOT NULL DEFAULT 'github'
 		)
 	`)
 	if err != nil {
 		panic(err)
 	}
 
-	// _, err = db.Exec(`
-	// 	CREATE TABLE IF NOT EXISTS peers (
-	// 		peer_id integer NOT NULL,
-	// 		active  bool NOT NULL DEFAULT true
-	// 	)
-	// `)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS notification_email_queue (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			recepient    text NOT NULL,
+			link         text NOT NULL,
+			user_id      integer NOT NULL,
+			created_at   timestamp NOT NULL,
+			reserved_for timestamp NOT NULL,
+			status       text NOT NULL DEFAULT '',
+			source       text NOT NULL,
 
-	// _, err = db.Exec(`
-	// 	CREATE TABLE IF NOT EXISTS merge_request_rules (
-	// 		repo_id integer NOT NULL,
-	// 		rule    text NOT NULL,
-	// 		active  bool NOT NULL DEFAULT true
-	// 	)
-	// `)
-	// if err != nil {
-	// 	panic(err)
-	// }
+			UNIQUE (recepient, link, user_id)
+		)
+	`)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS notification_rules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      integer NOT NULL,
+			notification_type text NOT NULL,
+			provider_id  text NOT NULL,
+			priority     integer NOT NULL,
+
+			UNIQUE (user_id, notification_type)
+		)
+	`)
+	if err != nil {
+		panic(err)
+	}
 }

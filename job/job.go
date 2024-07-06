@@ -2,6 +2,7 @@ package job
 
 import (
 	"database/sql"
+	"fmt"
 	"log/slog"
 
 	"github.com/golangtime/reviewbot/client"
@@ -15,19 +16,9 @@ type Job struct {
 	logger *slog.Logger
 }
 
-func (job *Job) groupPullRequestByRepository(repo string) {
-
-}
-
 func (job *Job) Run() error {
 	job.logger.Info("run job")
 	g := job.git
-
-	// TODO: for test (not actually needed)
-	// _, err := g.ListRepositories(repoOwner)
-	// if err != nil {
-	// 	job.logger.Error("list repositories error", "error", err)
-	// }
 
 	// fetch all repositories and owners
 	repos, err := job.repo.ListRepos(job.db, "")
@@ -40,45 +31,45 @@ func (job *Job) Run() error {
 	}
 
 	for _, r := range repos {
-		_, err = g.ListPullRequests(r.Owner, r.Name)
+		pullRequests, err := g.ListPullRequests(r.Owner, r.Name)
 		if err != nil {
 			job.logger.Error("list pull request error", "error", err)
 		}
+
+		for _, pr := range pullRequests {
+			for _, u := range pr.RequestedReviewers {
+				fmt.Println("pending review", *u.ID, u.Email, u.GetNodeID())
+			}
+
+			reviews, err := g.ListReviews(r.Owner, r.Name, pr.GetNumber())
+			if err != nil {
+				job.logger.Error("list reviews error", "error", err)
+			}
+
+			countPending := len(pr.RequestedReviewers)
+			for _, r := range reviews {
+				if r.State != nil && *r.State == "APPROVED" {
+					countPending--
+				}
+			}
+
+			if countPending < r.MinApprovals {
+				for _, u := range pr.RequestedReviewers {
+					var email string
+					if u.Email != nil {
+						email = *u.Email
+					}
+					job.logger.Info("enqueue notification", "url", pr.URL, "email", email, "user_id", *u.ID)
+					err = job.repo.EnqueueNotification(job.db, "github", *pr.HTMLURL, email, *u.ID)
+					if err != nil {
+						job.logger.Error("enqueue notification", "error", err)
+					}
+				}
+			}
+		}
 	}
 
-	// for _, repo := range repos {
-	// 	mergeRequests := g.GetOpenMergeRequests()
-	// 	for _, request := range mergeRequests {
-	// 		peers, err := job.CheckMergeRequest(request)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-
-	// 		for _, peer := range peers {
-	// 			job.logger.Info("peer must review open merge request", "peer", peer)
-	// 		}
-	// 	}
-	// }
-
 	return nil
-}
-
-// CheckMergeRequest проверяет нужно ли оповещать участников по заданному MergeRequest
-func (b *Job) CheckMergeRequest() ([]string, error) {
-	// определить минимальное количество апрувов
-
-	// определить состав участников
-
-	// подсчитать сколько участников поставили approve
-
-	// если количество меньше заданного то добавить людей в очередь оповещений
-
-	return nil, nil
-}
-
-// PrepareNotifications определяет мин
-func (b *Job) PrepareNotifications() {
-
 }
 
 func defaultJob(dbConn *sql.DB, logger *slog.Logger, gitClient client.GitClient) *Job {

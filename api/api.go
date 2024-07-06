@@ -41,6 +41,14 @@ func (v *V1) ListRepo(owner string) ([]db.RepoEntity, error) {
 	return resp, err
 }
 
+func (v *V1) ListPendingNotifications(queueType string) ([]db.Notification, error) {
+	result, err := v.repo.ListPendingNotifications(v.db, queueType)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (v *V1) DeleteRepo() {
 
 }
@@ -63,8 +71,12 @@ func (v *V1) AddMergeRequesRule() {
 
 }
 
-func (v *V1) AddNotificationRule(peer string, notifyType string) {
+func (v *V1) AddNotificationRule(userID int64, notifyType string, providerID string, priority int) error {
+	return v.repo.AddNotificationRule(v.db, userID, notifyType, providerID, priority)
+}
 
+func (v *V1) ListNotificationRules() ([]*db.NotificationRule, error) {
+	return v.repo.ListNotificationRules(v.db)
 }
 
 func (v *V1) DeactivateNotificationRule(peer string) {

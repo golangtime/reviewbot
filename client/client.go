@@ -8,9 +8,6 @@ type Repository struct {
 type GitClient interface {
 	ListRepositories(owner string) ([]*github.Repository, error)
 	ListPullRequests(owner, repo string) ([]*github.PullRequest, error)
-	// GetOpenMergeRequests(repoNames ...string)
-	// // ListPeers получает список участников CodeReview для заданного MergeRequest
-	// ListPeers(mergeRequest string) ([]string, error)
-	// // Подсчитывает минимальное количество approval
-	// CountApprovals(mergeRequest string) (int, error)
+	ListReviewers(owner, repo string, number int) ([]*github.User, error)
+	ListReviews(owner, repo string, number int) ([]*github.PullRequestReview, error)
 }

@@ -43,13 +43,13 @@ func (c *GithubClient) ListPullRequests(owner, repoName string) ([]*github.PullR
 		return nil, err
 	}
 
-	for _, pr := range pullRequests {
-		body, err := json.MarshalIndent(pr, "", "    ")
-		if err != nil {
-			return nil, err
-		}
-		log.Println(body)
-	}
+	// for _, pr := range pullRequests {
+	// 	body, err := json.MarshalIndent(pr, "", "    ")
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	log.Println(string(body))
+	// }
 
 	if len(pullRequests) == 0 {
 		log.Println("repository has no pull requests")
@@ -58,4 +58,36 @@ func (c *GithubClient) ListPullRequests(owner, repoName string) ([]*github.PullR
 	// TODO apply filter with DB filters
 
 	return pullRequests, nil
+}
+
+func (c *GithubClient) ListReviews(owner, repoName string, prNumber int) ([]*github.PullRequestReview, error) {
+	reviews, _, err := c.g.PullRequests.ListReviews(context.Background(), owner, repoName, prNumber, &github.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return reviews, nil
+}
+
+func (c *GithubClient) ListReviewers(owner, repoName string, prNumber int) ([]*github.User, error) {
+	reviewers, _, err := c.g.PullRequests.ListReviewers(context.Background(), owner, repoName, 1, &github.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, pr := range reviewers.Users {
+		body, err := json.MarshalIndent(pr, "", "    ")
+		if err != nil {
+			return nil, err
+		}
+		log.Println(string(body))
+	}
+
+	if len(reviewers.Users) == 0 {
+		log.Println("pull has no reviewers")
+	}
+
+	// TODO apply filter with DB filters
+
+	return reviewers.Users, nil
 }
