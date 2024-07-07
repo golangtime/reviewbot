@@ -32,6 +32,16 @@ type NotificationRule struct {
 	Priority   int
 }
 
+type PullRequestEntity struct {
+	ID        int64
+	Link      string
+	Reviewers []ReviewEntity
+}
+
+type ReviewEntity struct {
+	ID int64
+}
+
 type Repo interface {
 	ListRepos(db *sql.DB, owner string) ([]RepoEntity, error)
 	AddRepo(db *sql.DB, owner, repo string, minApproval int, clientType string) error

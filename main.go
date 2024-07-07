@@ -24,10 +24,10 @@ import (
 	"github.com/golangtime/reviewbot/scheduler/cron"
 )
 
-func StartAPI(logger *slog.Logger, database *sql.DB) error {
+func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClients) error {
 	repo := db.Repository{}
 
-	handler := handlers.NewHandler(database, repo, logger)
+	handler := handlers.NewHandler(database, repo, logger, gitClients)
 
 	ctrl := api.NewAPIV1(database, repo)
 
@@ -91,6 +91,10 @@ func StartAPI(logger *slog.Logger, database *sql.DB) error {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(&resp)
+	})
+
+	http.HandleFunc("/pull_requests", func(w http.ResponseWriter, r *http.Request) {
+		handler.ListPullRequests(w, r)
 	})
 
 	http.HandleFunc("/notification/pending", func(w http.ResponseWriter, r *http.Request) {
@@ -215,10 +219,13 @@ func main() {
 
 	db.MigrateDB(dbConn)
 
-	go StartAPI(logger, dbConn)
-
 	gitClient := github.New()
 	bitbucketClient := bitbucket.New(cfg.Bitbucket.URL, cfg.Bitbucket.User, cfg.Bitbucket.Password)
+
+	go StartAPI(logger, dbConn, handlers.GitClients{
+		Github:    gitClient,
+		Bitbucket: bitbucketClient,
+	})
 
 	jobFunc := job.NewJob(dbConn, logger, job.GitClients{
 		Github:    gitClient,
@@ -243,9 +250,16 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
 
-	logger.Info("starting bot")
+	var schedule []scheduler.ScheduleRecord
+	for _, sh := range cfg.Schedule.Default {
+		schedule = append(schedule, scheduler.ScheduleRecord{
+			Hour: sh[0], Minute: sh[1], Second: sh[2],
+		})
+	}
+
+	logger.Info("starting bot", "schedule", schedule)
 	bot.Start(scheduler.Schedule{
-		Records: []scheduler.ScheduleRecord{{0, 0, 0}},
+		Records: schedule,
 	})
 
 	select {

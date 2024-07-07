@@ -19,7 +19,7 @@ func NewCron(f func()) (*CronScheduler, error) {
 		return nil, err
 	}
 	return &CronScheduler{
-		TestMode: true,
+		TestMode: false,
 		sch:      sch,
 		f:        f,
 	}, nil
@@ -53,8 +53,10 @@ func (s *CronScheduler) runDaily(schedule scheduler.Schedule) error {
 			gocron.NewAtTimes(cronSchedule[0], cronSchedule[1:]...),
 		),
 		gocron.NewTask(s.f),
+		gocron.WithStartAt(gocron.WithStartImmediately()),
 	)
 
+	s.sch.Start()
 	return err
 }
 

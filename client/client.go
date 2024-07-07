@@ -22,5 +22,6 @@ type PullRequestReview struct {
 }
 
 type GitClient interface {
+	ListPullRequests(owner, repo string) ([]*PullRequest, error)
 	UnfinishedPullRequests(owner, repo string, minApprovals int) ([]*PullRequest, error)
 }
