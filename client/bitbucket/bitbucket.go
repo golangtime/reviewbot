@@ -1,67 +1,39 @@
 package bitbucket
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
-	"net/url"
+
+	bitbucket "github.com/gfleury/go-bitbucket-v1"
 
 	"github.com/golangtime/reviewbot/client"
-	"github.com/ktrysmt/go-bitbucket"
 )
 
 type BitbucketClient struct {
-	g *bitbucket.Client
+	g *bitbucket.APIClient
 }
 
 func New(baseUrl, username, password string) *BitbucketClient {
-	client := bitbucket.NewBasicAuth(username, password)
+	basePath := baseUrl + "/rest"
 
-	u, err := url.Parse(baseUrl)
-	if err != nil {
-		panic(err)
-	}
+	ctxAuth := context.WithValue(
+		context.Background(),
+		bitbucket.ContextBasicAuth,
+		bitbucket.BasicAuth{
+			UserName: username,
+			Password: password,
+		},
+	)
 
-	client.SetApiBaseURL(*u)
+	client := bitbucket.NewAPIClient(ctxAuth, bitbucket.NewConfiguration(basePath))
 
-	res, err := client.Repositories.ListForAccount(&bitbucket.RepositoriesOptions{
-		Owner: "aleksandr.nemtarev",
-	})
-
-	if err != nil {
-		panic(err)
-	}
-
-	log.Println("resp", res)
-
-	return &BitbucketClient{
+	cl := &BitbucketClient{
 		g: client,
 	}
-}
 
-func (c *BitbucketClient) ListReviews(owner, repo string, id int) ([]*client.PullRequestReview, error) {
-	opt := &bitbucket.PullRequestsOptions{
-		ID:       fmt.Sprintf("%d", id),
-		Owner:    owner,
-		RepoSlug: repo,
-	}
-
-	resp, err := c.g.Repositories.PullRequests.Statuses(opt)
-	if err != nil {
-		return nil, err
-	}
-
-	statuses := resp.([]any)
-
-	var result []*client.PullRequestReview
-
-	for _, status := range statuses {
-		fmt.Sprintf("type: %T, value: %+v", status, status)
-		result = append(result, &client.PullRequestReview{
-			Status: "-",
-		})
-	}
-
-	return result, nil
+	return cl
 }
 
 func (c *BitbucketClient) UnfinishedPullRequests(owner, repo string, minApprovals int) ([]*client.PullRequest, error) {
@@ -73,23 +45,7 @@ func (c *BitbucketClient) UnfinishedPullRequests(owner, repo string, minApproval
 	var result []*client.PullRequest
 
 	for _, pr := range pullRequests {
-		for _, u := range pr.Reviewers {
-			fmt.Println("pending review", u.ID, u.Email)
-		}
-
-		reviews, err := c.ListReviews(owner, repo, int(pr.ExternalID))
-		if err != nil {
-			return nil, err
-		}
-
-		countPending := len(pr.Reviewers)
-		for _, r := range reviews {
-			if r.Status == "APPROVED" {
-				countPending--
-			}
-		}
-
-		if countPending < minApprovals {
+		if pr.Approvals < minApprovals {
 			result = append(result, pr)
 		}
 	}
@@ -97,54 +53,71 @@ func (c *BitbucketClient) UnfinishedPullRequests(owner, repo string, minApproval
 	return result, nil
 }
 
-func (c *BitbucketClient) ListRepositories(owner string) ([]*client.Repository, error) {
-	opt := &bitbucket.RepositoriesOptions{Owner: "aleksandr.nemtarev@lamoda.ru"}
-	result, err := c.g.Repositories.ListForAccount(opt)
-	if err != nil {
-		return nil, err
-	}
-
-	// for _, r := range repos {
-	// 	log.Printf("Repository(id=%v,name=%v)\n", *r.ID, *r.Name)
-	// }
-
-	// TODO apply filter with DB filters
-	var repos []*client.Repository
-
-	for _, r := range result.Items {
-		repos = append(repos, &client.Repository{
-			Name: r.Name,
-		})
-	}
-
-	return repos, nil
-}
-
 func (c *BitbucketClient) ListPullRequests(owner, repoName string) ([]*client.PullRequest, error) {
-	opt := &bitbucket.PullRequestsOptions{}
-
-	resp, err := c.g.Repositories.PullRequests.Gets(opt)
+	resp, err := c.g.DefaultApi.GetPullRequests(map[string]any{
+		"role":  "AUTHOR",
+		"state": "OPEN",
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	pullRequests := resp.([]map[string]any)
-
-	if len(pullRequests) == 0 {
-		log.Println("repository has no pull requests")
 	}
 
 	var result []*client.PullRequest
 
-	for _, pr := range pullRequests {
-		log.Println("pull request", pr)
+	for _, prData := range resp.Values["values"].([]any) {
+		pr := prData.(map[string]any)
+		self := pr["fromRef"].(map[string]any)
 
+		repo := self["repository"].(map[string]any)
+
+		projectSlug := repo["slug"].(string)
+		if projectSlug != repoName {
+			continue
+		}
+
+		prBody, _ := json.MarshalIndent(prData, "", "    ")
+
+		log.Println(string(prBody))
+
+		pullRequestID := int64(pr["id"].(float64))
+		links := pr["links"].(map[string]any)
+		selfLinks := links["self"].([]any)
+		selfLinkData := selfLinks[0].(map[string]any)
+		selfLink := selfLinkData["href"].(string)
+
+		var approvals int
 		var reviewers []client.Reviewer
+		for _, rev := range pr["reviewers"].([]any) {
+			r := rev.(map[string]any)
+
+			status := r["status"].(string)
+
+			if status != "APPROVED" {
+				logData, _ := json.MarshalIndent(prData, "", "    ")
+				fmt.Println(string(logData))
+				userData := r["user"].(map[string]any)
+				userID := int64(userData["id"].(float64))
+				email := userData["emailAddress"].(string)
+
+				reviewers = append(reviewers, client.Reviewer{
+					ID:    userID,
+					Email: email,
+				})
+			} else {
+				approvals++
+			}
+		}
 
 		result = append(result, &client.PullRequest{
-			Reviewers: reviewers,
+			ExternalID: pullRequestID,
+			Link:       selfLink,
+			Reviewers:  reviewers,
+			Approvals:  approvals,
 		})
 	}
+
+	body, _ := json.MarshalIndent(result, "", "    ")
+	fmt.Println(string(body))
 
 	return result, nil
 }

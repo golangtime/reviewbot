@@ -8,6 +8,7 @@ type PullRequest struct {
 	ExternalID int64
 	Link       string
 	Reviewers  []Reviewer
+	Approvals  int
 }
 
 type Reviewer struct {

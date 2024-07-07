@@ -3,6 +3,7 @@ module github.com/golangtime/reviewbot
 go 1.22.0
 
 require (
+	github.com/gfleury/go-bitbucket-v1 v0.0.0-20240131155556-0b41d7863037 // indirect
 	github.com/go-co-op/gocron/v2 v2.8.0 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
