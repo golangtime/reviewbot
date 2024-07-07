@@ -8,28 +8,41 @@ import (
 	"github.com/golangtime/reviewbot/db"
 )
 
+type GitClients struct {
+	Github    client.GitClient
+	Bitbucket client.GitClient
+}
+
 type Job struct {
 	repo   *db.Repository
 	db     *sql.DB
-	git    client.GitClient
+	git    GitClients
 	logger *slog.Logger
 }
 
-func (job *Job) groupPullRequestByRepository(repo string) {
+func (job *Job) doForRepository(r db.RepoEntity, client client.GitClient) error {
+	pullRequests, err := client.UnfinishedPullRequests(r.Owner, r.Name, r.MinApprovals)
+	if err != nil {
+		return err
+	}
 
+	for _, pr := range pullRequests {
+		for _, u := range pr.Reviewers {
+			email := u.Email
+			job.logger.Info("enqueue notification", "url", pr.Link, "email", email, "user_id", u.ID)
+			err = job.repo.EnqueueNotification(job.db, "github", pr.Link, email, u.ID)
+			if err != nil {
+				job.logger.Error("enqueue notification", "error", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (job *Job) Run() error {
 	job.logger.Info("run job")
-	g := job.git
 
-	// TODO: for test (not actually needed)
-	// _, err := g.ListRepositories(repoOwner)
-	// if err != nil {
-	// 	job.logger.Error("list repositories error", "error", err)
-	// }
-
-	// fetch all repositories and owners
 	repos, err := job.repo.ListRepos(job.db, "")
 	if err != nil {
 		return err
@@ -40,60 +53,37 @@ func (job *Job) Run() error {
 	}
 
 	for _, r := range repos {
-		_, err = g.ListPullRequests(r.Owner, r.Name)
+		var err error
+		switch r.Provider {
+		case "github":
+			err = job.doForRepository(r, job.git.Github)
+		case "bitbucket":
+			err = job.doForRepository(r, job.git.Bitbucket)
+		default:
+			job.logger.Warn("not supported provider", "provider", r.Provider)
+		}
+
 		if err != nil {
-			job.logger.Error("list pull request error", "error", err)
+			job.logger.Error("repo error", "error", err)
 		}
 	}
-
-	// for _, repo := range repos {
-	// 	mergeRequests := g.GetOpenMergeRequests()
-	// 	for _, request := range mergeRequests {
-	// 		peers, err := job.CheckMergeRequest(request)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-
-	// 		for _, peer := range peers {
-	// 			job.logger.Info("peer must review open merge request", "peer", peer)
-	// 		}
-	// 	}
-	// }
 
 	return nil
 }
 
-// CheckMergeRequest проверяет нужно ли оповещать участников по заданному MergeRequest
-func (b *Job) CheckMergeRequest() ([]string, error) {
-	// определить минимальное количество апрувов
-
-	// определить состав участников
-
-	// подсчитать сколько участников поставили approve
-
-	// если количество меньше заданного то добавить людей в очередь оповещений
-
-	return nil, nil
-}
-
-// PrepareNotifications определяет мин
-func (b *Job) PrepareNotifications() {
-
-}
-
-func defaultJob(dbConn *sql.DB, logger *slog.Logger, gitClient client.GitClient) *Job {
+func defaultJob(dbConn *sql.DB, logger *slog.Logger, gitClients GitClients) *Job {
 	repo := &db.Repository{}
 
 	return &Job{
 		repo:   repo,
 		db:     dbConn,
-		git:    gitClient,
+		git:    gitClients,
 		logger: logger,
 	}
 }
 
-func NewJob(db *sql.DB, logger *slog.Logger, gitClient client.GitClient) func() {
-	jb := defaultJob(db, logger, gitClient)
+func NewJob(db *sql.DB, logger *slog.Logger, gitClients GitClients) func() {
+	jb := defaultJob(db, logger, gitClients)
 	return func() {
 		err := jb.Run()
 		if err != nil {
