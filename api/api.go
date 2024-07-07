@@ -19,7 +19,7 @@ func NewAPIV1(db *sql.DB, repo db.Repo) *V1 {
 	}
 }
 
-func (v *V1) AddRepo(owner, repo string, minApprovals int) error {
+func (v *V1) AddRepo(owner, repo, provider string, minApprovals int) error {
 	if repo == "" {
 		return fmt.Errorf("empty repository name")
 	}
@@ -28,7 +28,7 @@ func (v *V1) AddRepo(owner, repo string, minApprovals int) error {
 		return fmt.Errorf("empty owner name")
 	}
 
-	err := v.repo.AddRepo(v.db, owner, repo, minApprovals)
+	err := v.repo.AddRepo(v.db, owner, repo, minApprovals, provider)
 	return err
 }
 

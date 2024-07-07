@@ -10,6 +10,8 @@ type RepoEntity struct {
 	Owner        string
 	Name         string
 	MinApprovals int
+	// client type (github, bitbucket, etc)
+	Provider string
 }
 
 type Notification struct {
@@ -32,7 +34,7 @@ type NotificationRule struct {
 
 type Repo interface {
 	ListRepos(db *sql.DB, owner string) ([]RepoEntity, error)
-	AddRepo(db *sql.DB, owner, repo string, minApproval int) error
+	AddRepo(db *sql.DB, owner, repo string, minApproval int, clientType string) error
 	ListPendingNotifications(db *sql.DB, queueType string) ([]Notification, error)
 	AddNotificationRule(db *sql.DB, userID int64, notificationType string, providerID string, priority int) error
 	UpdateNotificationRule(db *sql.DB, userID int64, notificationType, providerID string, priority int) error
@@ -43,7 +45,7 @@ type Repository struct {
 }
 
 func (r Repository) ListRepos(db *sql.DB, owner string) ([]RepoEntity, error) {
-	query := "SELECT name, owner, min_approvals FROM repositories"
+	query := "SELECT name, owner, provider, min_approvals FROM repositories"
 	var args []any
 	if owner != "" {
 		query += " WHERE owner = $1"
@@ -63,17 +65,24 @@ func (r Repository) ListRepos(db *sql.DB, owner string) ([]RepoEntity, error) {
 		var (
 			name         string
 			owner        string
+			provider     string
 			minApprovals int
 		)
 
-		err := rows.Scan(&name, &owner, &minApprovals)
+		err := rows.Scan(&name, &owner, &provider, &minApprovals)
 		if err != nil {
 			return nil, err
+		}
+
+		repoProvider := "github"
+		if provider != "" {
+			repoProvider = provider
 		}
 
 		repos = append(repos, RepoEntity{
 			Name:         name,
 			Owner:        owner,
+			Provider:     repoProvider,
 			MinApprovals: minApprovals,
 		})
 	}
@@ -85,8 +94,9 @@ func (r Repository) ListRepos(db *sql.DB, owner string) ([]RepoEntity, error) {
 	return repos, nil
 }
 
-func (r Repository) AddRepo(db *sql.DB, owner, repo string, minApproval int) error {
-	_, err := db.Exec("INSERT INTO repositories (owner, name, min_approvals) VALUES ($1, $2, $3)", owner, repo, minApproval)
+func (r Repository) AddRepo(db *sql.DB, owner, repo string, minApproval int, provider string) error {
+	_, err := db.Exec("INSERT INTO repositories (owner, name, min_approvals, provider) VALUES ($1, $2, $3, $4)",
+		owner, repo, minApproval, provider)
 	return err
 }
 

@@ -16,10 +16,10 @@ type Reviewer struct {
 }
 
 type PullRequestReview struct {
+	UserID int64
 	Status string
 }
 
 type GitClient interface {
-	ListPullRequests(owner, repo string) ([]*PullRequest, error)
-	ListReviews(owner, repo string, number int) ([]*PullRequestReview, error)
+	UnfinishedPullRequests(owner, repo string, minApprovals int) ([]*PullRequest, error)
 }

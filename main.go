@@ -14,6 +14,7 @@ import (
 	"github.com/golangtime/reviewbot/api"
 	"github.com/golangtime/reviewbot/api/handlers"
 	"github.com/golangtime/reviewbot/bot"
+	"github.com/golangtime/reviewbot/client/bitbucket"
 	"github.com/golangtime/reviewbot/client/github"
 	"github.com/golangtime/reviewbot/config"
 	"github.com/golangtime/reviewbot/db"
@@ -40,7 +41,7 @@ func StartAPI(logger *slog.Logger, database *sql.DB) error {
 			return
 		}
 
-		err = ctrl.AddRepo(req.Owner, req.Name, req.MinApprovals)
+		err = ctrl.AddRepo(req.Owner, req.Name, req.Provider, req.MinApprovals)
 		if err != nil {
 			logger.Error("add repo error", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -79,6 +80,7 @@ func StartAPI(logger *slog.Logger, database *sql.DB) error {
 		for _, r := range repos {
 			repoResponse = append(repoResponse, &api.Repo{
 				Name:         r.Name,
+				Provider:     r.Provider,
 				MinApprovals: r.MinApprovals,
 			})
 		}
@@ -216,8 +218,12 @@ func main() {
 	go StartAPI(logger, dbConn)
 
 	gitClient := github.New()
+	bitbucketClient := bitbucket.New(cfg.Bitbucket.URL, cfg.Bitbucket.User, cfg.Bitbucket.Password)
 
-	jobFunc := job.NewJob(dbConn, logger, gitClient)
+	jobFunc := job.NewJob(dbConn, logger, job.GitClients{
+		Github:    gitClient,
+		Bitbucket: bitbucketClient,
+	})
 
 	botScheduler, err := cron.NewCron(jobFunc)
 	if err != nil {

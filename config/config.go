@@ -8,7 +8,14 @@ import (
 )
 
 type Config struct {
-	Email EmailConfig `toml:"email"`
+	Email     EmailConfig     `toml:"email"`
+	Bitbucket BitbucketConfig `toml:"bitbucket"`
+}
+
+type BitbucketConfig struct {
+	URL      string `toml:"url"`
+	User     string `toml:"user"`
+	Password string `toml:"password"`
 }
 
 type EmailConfig struct {

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/golangtime/reviewbot/client"
@@ -18,6 +19,46 @@ func New() *GithubClient {
 	return &GithubClient{
 		g: client,
 	}
+}
+
+func (c *GithubClient) UnfinishedPullRequests(owner, repo string, minApprovals int) ([]*client.PullRequest, error) {
+	pullRequests, err := c.ListPullRequests(owner, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*client.PullRequest
+
+	for _, pr := range pullRequests {
+		reviewers := map[int64]struct{}{}
+
+		for _, u := range pr.Reviewers {
+			fmt.Println("pending review", u.ID, u.Email)
+			reviewers[u.ID] = struct{}{}
+		}
+
+		reviews, err := c.ListReviews(owner, repo, int(pr.ExternalID))
+		if err != nil {
+			return nil, err
+		}
+
+		approvedCount := 0
+		for _, r := range reviews {
+			if r.Status == "APPROVED" {
+				approvedCount++
+				delete(reviewers, r.UserID)
+			}
+		}
+
+		log.Println("repo approve count", approvedCount)
+		log.Println("repo need notify", approvedCount < minApprovals)
+
+		if approvedCount < minApprovals {
+			result = append(result, pr)
+		}
+	}
+
+	return result, nil
 }
 
 func (c *GithubClient) ListPullRequests(owner, repoName string) ([]*client.PullRequest, error) {
@@ -47,7 +88,7 @@ func (c *GithubClient) ListPullRequests(owner, repoName string) ([]*client.PullR
 		}
 
 		result = append(result, &client.PullRequest{
-			ExternalID: pr.GetID(),
+			ExternalID: int64(pr.GetNumber()),
 			Link:       *pr.HTMLURL,
 			Reviewers:  reviewers,
 		})
@@ -68,8 +109,12 @@ func (c *GithubClient) ListReviews(owner, repoName string, prNumber int) ([]*cli
 		if r.State != nil {
 			state = *r.State
 		}
+
+		userID := *r.User.ID
+
 		result = append(result, &client.PullRequestReview{
 			Status: state,
+			UserID: userID,
 		})
 	}
 

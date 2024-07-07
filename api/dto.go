@@ -6,6 +6,7 @@ type AddRepoRequest struct {
 	Owner        string `json:"owner"`
 	Name         string `json:"name"`
 	MinApprovals int    `json:"min_approvals"`
+	Provider     string `json:"provider"`
 }
 
 type AddRepoResponse struct {
@@ -22,6 +23,7 @@ type ListReposResponse struct {
 
 type Repo struct {
 	Name         string `json:"name"`
+	Provider     string `json:"provider"`
 	MinApprovals int    `json:"min_approvals"`
 }
 
