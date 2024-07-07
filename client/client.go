@@ -1,13 +1,25 @@
 package client
 
-import "github.com/google/go-github/v62/github"
-
 type Repository struct {
+	Name string
+}
+
+type PullRequest struct {
+	ExternalID int64
+	Link       string
+	Reviewers  []Reviewer
+}
+
+type Reviewer struct {
+	ID    int64
+	Email string
+}
+
+type PullRequestReview struct {
+	Status string
 }
 
 type GitClient interface {
-	ListRepositories(owner string) ([]*github.Repository, error)
-	ListPullRequests(owner, repo string) ([]*github.PullRequest, error)
-	ListReviewers(owner, repo string, number int) ([]*github.User, error)
-	ListReviews(owner, repo string, number int) ([]*github.PullRequestReview, error)
+	ListPullRequests(owner, repo string) ([]*PullRequest, error)
+	ListReviews(owner, repo string, number int) ([]*PullRequestReview, error)
 }

@@ -37,30 +37,27 @@ func (job *Job) Run() error {
 		}
 
 		for _, pr := range pullRequests {
-			for _, u := range pr.RequestedReviewers {
-				fmt.Println("pending review", *u.ID, u.Email, u.GetNodeID())
+			for _, u := range pr.Reviewers {
+				fmt.Println("pending review", u.ID, u.Email)
 			}
 
-			reviews, err := g.ListReviews(r.Owner, r.Name, pr.GetNumber())
+			reviews, err := g.ListReviews(r.Owner, r.Name, int(pr.ExternalID))
 			if err != nil {
 				job.logger.Error("list reviews error", "error", err)
 			}
 
-			countPending := len(pr.RequestedReviewers)
+			countPending := len(pr.Reviewers)
 			for _, r := range reviews {
-				if r.State != nil && *r.State == "APPROVED" {
+				if r.Status == "APPROVED" {
 					countPending--
 				}
 			}
 
 			if countPending < r.MinApprovals {
-				for _, u := range pr.RequestedReviewers {
-					var email string
-					if u.Email != nil {
-						email = *u.Email
-					}
-					job.logger.Info("enqueue notification", "url", pr.URL, "email", email, "user_id", *u.ID)
-					err = job.repo.EnqueueNotification(job.db, "github", *pr.HTMLURL, email, *u.ID)
+				for _, u := range pr.Reviewers {
+					email := u.Email
+					job.logger.Info("enqueue notification", "url", pr.Link, "email", email, "user_id", u.ID)
+					err = job.repo.EnqueueNotification(job.db, "github", pr.Link, email, u.ID)
 					if err != nil {
 						job.logger.Error("enqueue notification", "error", err)
 					}
