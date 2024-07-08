@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Email     EmailConfig     `toml:"email"`
 	Bitbucket BitbucketConfig `toml:"bitbucket"`
+	Schedule  ScheduleConfig  `toml:"schedule"`
 }
 
 type BitbucketConfig struct {
@@ -22,6 +23,10 @@ type EmailConfig struct {
 	User     string `toml:"user"`
 	Password string `toml:"password"`
 	From     string `toml:"from"`
+}
+
+type ScheduleConfig struct {
+	Default [][3]int
 }
 
 func Load() (*Config, error) {

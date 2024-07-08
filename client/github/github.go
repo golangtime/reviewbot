@@ -87,6 +87,8 @@ func (c *GithubClient) ListPullRequests(owner, repoName string) ([]*client.PullR
 			})
 		}
 
+		log.Printf("pull request (%d), link: %v, reviewers: %d\n", pr.GetNumber(), pr.HTMLURL, len(reviewers))
+
 		result = append(result, &client.PullRequest{
 			ExternalID: int64(pr.GetNumber()),
 			Link:       *pr.HTMLURL,

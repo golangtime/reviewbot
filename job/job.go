@@ -26,16 +26,20 @@ func (job *Job) doForRepository(r db.RepoEntity, client client.GitClient) error 
 		return err
 	}
 
+	pullRequestCount := len(pullRequests)
 	for _, pr := range pullRequests {
+		job.logger.Info("pull request has pending reviews", "count", len(pr.Reviewers))
 		for _, u := range pr.Reviewers {
 			email := u.Email
 			job.logger.Info("enqueue notification", "url", pr.Link, "email", email, "user_id", u.ID)
-			err = job.repo.EnqueueNotification(job.db, "github", pr.Link, email, u.ID)
+			err = job.repo.EnqueueNotification(job.db, r.Provider, pr.Link, email, u.ID)
 			if err != nil {
 				job.logger.Error("enqueue notification", "error", err)
 			}
 		}
 	}
+
+	job.logger.Info("repository stat", "name", r.Name, "pull_request_count", pullRequestCount)
 
 	return nil
 }

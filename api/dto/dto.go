@@ -10,3 +10,24 @@ type UpdateNotificationRuleRequest struct {
 type UpdateNotificationRuleResponse struct {
 	Success bool `json:"success"`
 }
+
+type ListPullRequests struct {
+	Owner    string `json:"owner"`
+	Repo     string `json:"repo"`
+	Provider string `json:"provider"`
+}
+
+type ListPullRequestsResponse struct {
+	Result []PullRequest `json:"result"`
+}
+
+type PullRequest struct {
+	ID        int64                 `json:"id"`
+	Link      string                `json:"link"`
+	Reviewers []PullRequestReviewer `json:"reviewers"`
+}
+
+type PullRequestReviewer struct {
+	ID    int64  `json:"id"`
+	Email string `json:"email"`
+}
