@@ -33,23 +33,19 @@ func (v *V1) AddRepo(owner, repo, provider string, minApprovals int) error {
 }
 
 func (v *V1) ListRepo(owner string) ([]db.RepoEntity, error) {
-	if owner == "" {
-		return nil, fmt.Errorf("empty owner name")
-	}
-
 	resp, err := v.repo.ListRepos(v.db, owner)
 	return resp, err
 }
 
-func (v *V1) ListPendingNotifications(queueType string) ([]db.Notification, error) {
-	result, err := v.repo.ListPendingNotifications(v.db, queueType)
+func (v *V1) ListPendingNotifications() ([]db.Notification, error) {
+	result, err := v.repo.ListPendingNotifications(v.db)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func (v *V1) DeleteRepo() {
+func (v *V1) RemoveRepo() {
 
 }
 
@@ -71,8 +67,8 @@ func (v *V1) AddMergeRequesRule() {
 
 }
 
-func (v *V1) AddNotificationRule(userID int64, notifyType string, providerID string, priority int) error {
-	return v.repo.AddNotificationRule(v.db, userID, notifyType, providerID, priority)
+func (v *V1) AddNotificationRule(userID int64, notifyType string, providerID, chatID string, priority int) error {
+	return v.repo.AddNotificationRule(v.db, userID, notifyType, providerID, chatID, priority)
 }
 
 func (v *V1) ListNotificationRules() ([]*db.NotificationRule, error) {

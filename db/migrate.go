@@ -18,8 +18,9 @@ func MigrateDB(db *sql.DB) {
 	}
 
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS notification_email_queue (
+		CREATE TABLE IF NOT EXISTS notification_queue (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			rule_id      INTEGER NOT NULL,
 			recepient    text NOT NULL,
 			link         text NOT NULL,
 			user_id      integer NOT NULL,
@@ -28,7 +29,7 @@ func MigrateDB(db *sql.DB) {
 			status       text NOT NULL DEFAULT '',
 			source       text NOT NULL,
 
-			UNIQUE (recepient, link, user_id)
+			UNIQUE (rule_id, recepient, link, user_id)
 		)
 	`)
 	if err != nil {
@@ -37,10 +38,11 @@ func MigrateDB(db *sql.DB) {
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS notification_rules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id      integer NOT NULL,
 			notification_type text NOT NULL,
 			provider_id  text NOT NULL,
+			chat_id      text,
 			priority     integer NOT NULL,
 
 			UNIQUE (user_id, notification_type)

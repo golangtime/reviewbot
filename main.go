@@ -19,15 +19,16 @@ import (
 	"github.com/golangtime/reviewbot/config"
 	"github.com/golangtime/reviewbot/db"
 	"github.com/golangtime/reviewbot/intergrations/email"
+	"github.com/golangtime/reviewbot/intergrations/pachca"
 	"github.com/golangtime/reviewbot/job"
 	"github.com/golangtime/reviewbot/scheduler"
 	"github.com/golangtime/reviewbot/scheduler/cron"
 )
 
-func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClients) error {
+func StartAPI(cfg *config.Config, logger *slog.Logger, database *sql.DB, gitClients handlers.GitClients) error {
 	repo := db.Repository{}
 
-	handler := handlers.NewHandler(database, repo, logger, gitClients)
+	handler := handlers.NewHandler(database, repo, logger, gitClients, cfg.Pachca.Token)
 
 	ctrl := api.NewAPIV1(database, repo)
 
@@ -69,16 +70,18 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 		if err != nil {
 			logger.Error("list repo error", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.AddRepoResponse{
+			resp := api.ListReposResponse{
 				Success: false,
 			}
 			json.NewEncoder(w).Encode(&resp)
 			return
 		}
 
-		var repoResponse []*api.Repo
+		repoResponse := make([]*api.Repo, 0, len(repos))
+
 		for _, r := range repos {
 			repoResponse = append(repoResponse, &api.Repo{
+				Owner:        r.Owner,
 				Name:         r.Name,
 				Provider:     r.Provider,
 				MinApprovals: r.MinApprovals,
@@ -86,11 +89,17 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 		}
 
 		resp := api.ListReposResponse{
-			Repos: repoResponse,
+			Repos:   repoResponse,
+			Count:   len(repoResponse),
+			Success: true,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(&resp)
+	})
+
+	http.HandleFunc("/repos/remove", func(w http.ResponseWriter, r *http.Request) {
+		handler.RemoveRepo(w, r)
 	})
 
 	http.HandleFunc("/pull_requests", func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +111,7 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 
 		json.NewDecoder(r.Body).Decode(&req)
 
-		result, err := ctrl.ListPendingNotifications(req.QueueType)
+		result, err := ctrl.ListPendingNotifications()
 		if err != nil {
 			logger.Error("list notifications error", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -151,9 +160,11 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 		var response []*api.NotificationRule
 		for _, r := range result {
 			response = append(response, &api.NotificationRule{
+				ID:               r.ID,
 				UserID:           r.UserID,
 				NotificationType: r.NotificationType,
 				ProviderID:       r.ProviderID,
+				ChatID:           r.ChatID,
 				Priority:         r.Priority,
 			})
 		}
@@ -181,7 +192,7 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 			return
 		}
 
-		err = ctrl.AddNotificationRule(req.UserID, req.NotificationType, req.ProviderID, req.Priority)
+		err = ctrl.AddNotificationRule(req.UserID, req.NotificationType, req.ProviderID, req.ChatID, req.Priority)
 		if err != nil {
 			logger.Error("add notification rule error", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -198,6 +209,18 @@ func StartAPI(logger *slog.Logger, database *sql.DB, gitClients handlers.GitClie
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(&resp)
+	})
+
+	http.HandleFunc("/notification/remove_rule", func(w http.ResponseWriter, r *http.Request) {
+		handler.RemoveNotificationRule(w, r)
+	})
+
+	http.HandleFunc("/pachca/user", func(w http.ResponseWriter, r *http.Request) {
+		handler.FindPachcaUser(w, r)
+	})
+
+	http.HandleFunc("/pachca/chat", func(w http.ResponseWriter, r *http.Request) {
+		handler.FindChat(w, r)
 	})
 
 	err := http.ListenAndServe(":8000", nil)
@@ -222,7 +245,7 @@ func main() {
 	gitClient := github.New()
 	bitbucketClient := bitbucket.New(cfg.Bitbucket.URL, cfg.Bitbucket.User, cfg.Bitbucket.Password)
 
-	go StartAPI(logger, dbConn, handlers.GitClients{
+	go StartAPI(cfg, logger, dbConn, handlers.GitClients{
 		Github:    gitClient,
 		Bitbucket: bitbucketClient,
 	})
@@ -232,7 +255,7 @@ func main() {
 		Bitbucket: bitbucketClient,
 	})
 
-	botScheduler, err := cron.NewCron(jobFunc)
+	botScheduler, err := cron.NewCron(cfg.Schedule.TestMode, jobFunc)
 	if err != nil {
 		logger.Error("scheduler error", "error", err)
 		os.Exit(1)
@@ -242,8 +265,10 @@ func main() {
 	log.Printf("%+v", cfg)
 
 	emailSender := email.NewEmailSender(logger, cfg.Email.From, cfg.Email.User, cfg.Email.Password)
-
 	bot.RegisterNotificationSender("email", emailSender)
+
+	pachcaSender := pachca.NewPachcaSender(logger, cfg.Pachca.Token)
+	bot.RegisterNotificationSender("pachca", pachcaSender)
 
 	bot := bot.New(dbConn, botScheduler, logger)
 

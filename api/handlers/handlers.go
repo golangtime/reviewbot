@@ -18,18 +18,26 @@ type GitClients struct {
 }
 
 type Handler struct {
-	db         *sql.DB
-	repo       db.Repo
-	logger     *slog.Logger
-	gitClients GitClients
+	db          *sql.DB
+	repo        db.Repo
+	logger      *slog.Logger
+	gitClients  GitClients
+	pachcaToken string
 }
 
-func NewHandler(dbConn *sql.DB, repo db.Repo, logger *slog.Logger, gitClients GitClients) *Handler {
+func NewHandler(
+	dbConn *sql.DB,
+	repo db.Repo,
+	logger *slog.Logger,
+	gitClients GitClients,
+	pachcaToken string,
+) *Handler {
 	return &Handler{
-		gitClients: gitClients,
-		db:         dbConn,
-		repo:       repo,
-		logger:     logger,
+		gitClients:  gitClients,
+		db:          dbConn,
+		repo:        repo,
+		logger:      logger,
+		pachcaToken: pachcaToken,
 	}
 }
 
@@ -104,7 +112,7 @@ func (h *Handler) UpdateNotificationRule(w http.ResponseWriter, r *http.Request)
 
 	err = h.repo.UpdateNotificationRule(h.db, req.UserID, req.NotificationType, req.ProviderID, req.Priority)
 	if err != nil {
-		logger.Error("add notification rule error", "error", err)
+		logger.Error("update notification rule error", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		resp := api.AddRepoResponse{
 			Success: false,

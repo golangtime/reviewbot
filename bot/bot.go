@@ -21,7 +21,8 @@ func RegisterNotificationSender(notificationType string, sender notify.Notificat
 
 func New(dbConn *sql.DB, scheduler scheduler.Scheduler, logger *slog.Logger) *Bot {
 	backgroundNotificationSender := notify.NewSender(dbConn, logger, &notify.SenderOptions{
-		EmailSender: notificationSenderRegistry["email"],
+		EmailSender:  notificationSenderRegistry["email"],
+		PachcaSender: notificationSenderRegistry["pachca"],
 	})
 
 	go backgroundNotificationSender.Start()

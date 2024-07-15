@@ -13,13 +13,13 @@ type CronScheduler struct {
 	f        func()
 }
 
-func NewCron(f func()) (*CronScheduler, error) {
+func NewCron(testMode bool, f func()) (*CronScheduler, error) {
 	sch, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, err
 	}
 	return &CronScheduler{
-		TestMode: false,
+		TestMode: testMode,
 		sch:      sch,
 		f:        f,
 	}, nil

@@ -2,8 +2,15 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"time"
+)
+
+var (
+	ErrNotificationRuleNotFound = errors.New("notification rule not found")
 )
 
 type RepoEntity struct {
@@ -22,10 +29,13 @@ type Notification struct {
 	CreatedAt   time.Time
 	ReservedFor time.Time
 	Status      string
+	SenderType  string
 }
 
 type NotificationRule struct {
+	ID               int64
 	UserID           int64
+	ChatID           int64
 	NotificationType string
 	// ProviderID chatID in messengers
 	ProviderID string
@@ -45,9 +55,11 @@ type ReviewEntity struct {
 type Repo interface {
 	ListRepos(db *sql.DB, owner string) ([]RepoEntity, error)
 	AddRepo(db *sql.DB, owner, repo string, minApproval int, clientType string) error
-	ListPendingNotifications(db *sql.DB, queueType string) ([]Notification, error)
-	AddNotificationRule(db *sql.DB, userID int64, notificationType string, providerID string, priority int) error
+	RemoveRepo(db *sql.DB, owner, repo string) error
+	ListPendingNotifications(db *sql.DB) ([]Notification, error)
+	AddNotificationRule(db *sql.DB, userID int64, notificationType string, providerID, chatID string, priority int) error
 	UpdateNotificationRule(db *sql.DB, userID int64, notificationType, providerID string, priority int) error
+	RemoveNotificationRule(db *sql.DB, ruleID int64) error
 	ListNotificationRules(db *sql.DB) ([]*NotificationRule, error)
 }
 
@@ -110,29 +122,28 @@ func (r Repository) AddRepo(db *sql.DB, owner, repo string, minApproval int, pro
 	return err
 }
 
+func (r Repository) RemoveRepo(db *sql.DB, owner, repo string) error {
+	_, err := db.Exec("DELETE FROM repositories WHERE owner = $1 AND name = $2",
+		owner, repo)
+	return err
+}
+
 func (r Repository) EnqueueNotification(db *sql.DB, sourceType string, pullRequestURL string, email string, userID int64) error {
 	notificationRule, err := r.ListNotificationRuleByUser(db, userID)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	} else if err == sql.ErrNoRows {
+		log.Println("skip enqueue notification, not notification rules", userID)
 		return nil
 	}
 
-	var tableName string
-	switch notificationRule.NotificationType {
-	case "email":
-		tableName = "email"
-	default:
-		return fmt.Errorf("unknown notification type %s", notificationRule.NotificationType)
-	}
-
 	query := fmt.Sprintf(`
-	INSERT INTO notification_%s_queue (
-		recepient, link, user_id, created_at, reserved_for, source) 
-		VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (recepient, link, user_id) DO NOTHING`, tableName)
+	INSERT INTO notification_queue (
+		rule_id, recepient, link, user_id, created_at, reserved_for, source) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (rule_id, recepient, link, user_id) DO NOTHING`)
 
 	_, err = db.Exec(query,
-		email, pullRequestURL, userID, time.Now(), time.Now().Add(time.Hour), sourceType)
+		notificationRule.ID, email, pullRequestURL, userID, time.Now(), time.Now().Add(time.Hour), sourceType)
 	return err
 }
 
@@ -140,14 +151,10 @@ var notificationType = map[string]struct{}{
 	"email": {},
 }
 
-func (r Repository) ListPendingNotifications(db *sql.DB, queueType string) ([]Notification, error) {
-	if _, ok := notificationType[queueType]; !ok {
-		return nil, fmt.Errorf("invalid notification type: %v", queueType)
-	}
-
-	query := fmt.Sprintf(`SELECT id, recepient, link, user_id, created_at, reserved_for 
-	FROM notification_%s_queue WHERE status = ''
-	ORDER BY created_at DESC`, queueType)
+func (r Repository) ListPendingNotifications(db *sql.DB) ([]Notification, error) {
+	query := fmt.Sprintf(`SELECT rule_id, id, recepient, link, user_id, created_at, reserved_for 
+	FROM notification_queue WHERE status = ''
+	ORDER BY created_at DESC`)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -160,6 +167,7 @@ func (r Repository) ListPendingNotifications(db *sql.DB, queueType string) ([]No
 
 	for rows.Next() {
 		var (
+			ruleID      int64
 			id          int64
 			recepient   string
 			link        string
@@ -168,8 +176,16 @@ func (r Repository) ListPendingNotifications(db *sql.DB, queueType string) ([]No
 			reservedFor time.Time
 		)
 
-		err := rows.Scan(&id, &recepient, &link, &userID, &createdAt, &reservedFor)
+		err := rows.Scan(&ruleID, &id, &recepient, &link, &userID, &createdAt, &reservedFor)
 		if err != nil {
+			return nil, err
+		}
+
+		notificationRule, err := r.GetNotificationRule(db, ruleID)
+		if err != nil {
+			if errors.Is(err, ErrNotificationRuleNotFound) {
+				continue
+			}
 			return nil, err
 		}
 
@@ -180,6 +196,7 @@ func (r Repository) ListPendingNotifications(db *sql.DB, queueType string) ([]No
 			UserID:      userID,
 			CreatedAt:   createdAt,
 			ReservedFor: reservedFor,
+			SenderType:  notificationRule.NotificationType,
 		})
 	}
 
@@ -190,16 +207,42 @@ func (r Repository) ListPendingNotifications(db *sql.DB, queueType string) ([]No
 	return result, nil
 }
 
-func (r Repository) AddNotificationRule(db *sql.DB, userID int64, notificationType string, providerID string, priority int) error {
+func (r Repository) GetNotificationRule(db *sql.DB, ruleID int64) (*NotificationRule, error) {
+	var notificationRule NotificationRule
+	err := db.QueryRow(`SELECT id, user_id, notification_type, provider_id, coalesce(chat_id, '0'), priority
+		FROM notification_rules WHERE id = $1`, ruleID).
+		Scan(&notificationRule.ID,
+			&notificationRule.UserID,
+			&notificationRule.NotificationType,
+			&notificationRule.ProviderID,
+			&notificationRule.ChatID,
+			&notificationRule.Priority,
+		)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotificationRuleNotFound
+		}
+		return nil, fmt.Errorf("error getting notification rule with id = %d: %w", ruleID, err)
+	}
+
+	return &notificationRule, nil
+}
+
+func (r Repository) AddNotificationRule(db *sql.DB, userID int64, notificationType string, providerID, chatID string, priority int) error {
 	switch notificationType {
-	case "email":
+	case "email", "pachca":
 	default:
 		return fmt.Errorf("invalid notification type %s", notificationType)
 	}
 
-	query := "INSERT INTO notification_rules (user_id, notification_type, provider_id, priority) VALUES ($1, $2, $3, $4)"
+	var chatIDVal *string
+	if chatID != "" {
+		chatIDVal = &chatID
+	}
 
-	_, err := db.Exec(query, userID, notificationType, providerID, priority)
+	query := "INSERT INTO notification_rules (user_id, notification_type, provider_id, chat_id, priority) VALUES ($1, $2, $3, $4, $5)"
+
+	_, err := db.Exec(query, userID, notificationType, providerID, chatIDVal, priority)
 	if err != nil {
 		return err
 	}
@@ -208,33 +251,71 @@ func (r Repository) AddNotificationRule(db *sql.DB, userID int64, notificationTy
 
 func (r Repository) UpdateNotificationRule(db *sql.DB, userID int64, notificationType, providerID string, priority int) error {
 	switch notificationType {
-	case "email":
+	case "email", "pachca":
 	default:
 		return fmt.Errorf("invalid notification type %s", notificationType)
 	}
 
-	_, err := db.Exec(`UPDATE notification_rules SET priority = $3, provider_id = $4
+	log.Printf("update notification rule, user_id=%d, notification_type=%s, provider_id=%s, priority=%d\n",
+		userID, notificationType, providerID, priority)
+
+	res, err := db.Exec(`UPDATE notification_rules SET priority = $3, provider_id = $4
 	WHERE user_id = $1 AND notification_type = $2`, userID, notificationType, priority, providerID)
 	if err != nil {
 		return err
 	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	log.Println("rows updated", rowsAffected)
+
+	return nil
+}
+
+func (r Repository) RemoveNotificationRule(db *sql.DB, id int64) error {
+	res, err := db.Exec(`DELETE FROM notification_rules WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	log.Println("rows deleted", rowsAffected)
+
 	return nil
 }
 
 func (r Repository) ListNotificationRuleByUser(db *sql.DB, userID int64) (*NotificationRule, error) {
-	query := `SELECT provider_id, notification_type FROM notification_rules WHERE user_id = $1 ORDER BY priority LIMIT 1`
+	query := `SELECT id, user_id, provider_id, coalesce(chat_id, ''), notification_type FROM notification_rules WHERE user_id = $1 ORDER BY priority LIMIT 1`
 
 	var rule NotificationRule
 
-	err := db.QueryRow(query, userID).Scan(&rule.ProviderID, &rule.NotificationType)
+	var chatID string
+
+	err := db.QueryRow(query, userID).Scan(&rule.ID, &rule.UserID, &rule.ProviderID, &chatID, &rule.NotificationType)
 	if err != nil {
 		return nil, err
 	}
+
+	if chatID != "" {
+		var err error
+		rule.ChatID, err = strconv.ParseInt(chatID, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &rule, nil
 }
 
 func (r Repository) ListNotificationRules(db *sql.DB) ([]*NotificationRule, error) {
-	query := fmt.Sprintf(`SELECT user_id, notification_type, provider_id, priority FROM notification_rules`)
+	query := fmt.Sprintf(`SELECT id, user_id, notification_type, provider_id, coalesce(chat_id, ''), priority FROM notification_rules`)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -247,20 +328,31 @@ func (r Repository) ListNotificationRules(db *sql.DB) ([]*NotificationRule, erro
 
 	for rows.Next() {
 		var (
+			id               int64
 			userID           int64
 			notificationType string
 			providerID       string
+			chatID           string
 			priority         int
 		)
 
-		err := rows.Scan(&userID, &notificationType, &providerID, &priority)
+		err := rows.Scan(&id, &userID, &notificationType, &providerID, &chatID, &priority)
 		if err != nil {
 			return nil, err
 		}
 
+		var chatIDVal int64
+		if chatID != "" {
+			chatIDVal, _ = strconv.ParseInt(chatID, 10, 64)
+		}
+
 		result = append(result, &NotificationRule{
+			ID:               id,
 			UserID:           userID,
 			NotificationType: notificationType,
+			ProviderID:       providerID,
+			ChatID:           chatIDVal,
+			Priority:         priority,
 		})
 	}
 

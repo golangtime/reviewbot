@@ -22,25 +22,28 @@ type Sender struct {
 	repo   *db.Repository
 
 	// senders
-	emailSender NotificationSender
+	emailSender  NotificationSender
+	pachcaSender NotificationSender
 }
 
 type NotificationSender interface {
-	Send(providerID string, link string) error
+	Send(providerID string, chatID int64, link string) error
 }
 
 type SenderOptions struct {
-	EmailSender NotificationSender
+	EmailSender  NotificationSender
+	PachcaSender NotificationSender
 }
 
 func NewSender(dbConn *sql.DB, logger *slog.Logger, opts *SenderOptions) *Sender {
 	repo := &db.Repository{}
 
 	return &Sender{
-		repo:        repo,
-		db:          dbConn,
-		logger:      logger,
-		emailSender: opts.EmailSender,
+		repo:         repo,
+		db:           dbConn,
+		logger:       logger,
+		emailSender:  opts.EmailSender,
+		pachcaSender: opts.PachcaSender,
 	}
 }
 
@@ -49,14 +52,13 @@ func (s *Sender) Start() error {
 	for {
 		select {
 		case <-ticker.C:
-			notifications, err := s.repo.ListPendingNotifications(s.db, "email")
+			notifications, err := s.repo.ListPendingNotifications(s.db)
 			if err != nil {
 				s.logger.Error("ListPendingNotifications error", "error", err)
 				continue
 			}
 
 			if len(notifications) == 0 {
-				s.logger.Info("no pending notifications")
 				continue
 			}
 
@@ -96,7 +98,7 @@ func (s *Sender) Send(notification *Notification) error {
 	}()
 
 	// TODO - locking
-	_, err = s.db.Exec("SELECT 1 FROM notification_email_queue WHERE id = $1", notification.ID)
+	_, err = s.db.Exec("SELECT 1 FROM notification_queue WHERE id = $1", notification.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			s.logger.Info("skip notification, already sent", "notification_id", notification.ID)
@@ -117,7 +119,7 @@ func (s *Sender) Send(notification *Notification) error {
 	}
 
 	defer func() {
-		_, err = s.db.Exec("DELETE FROM notification_email_queue WHERE id = $1", notification.ID)
+		_, err = s.db.Exec("DELETE FROM notification_queue WHERE id = $1", notification.ID)
 		if err != nil {
 			s.logger.Error("delete notification error", "error", err)
 			return
@@ -127,11 +129,19 @@ func (s *Sender) Send(notification *Notification) error {
 	switch notificationRule.NotificationType {
 	case "email":
 		return s.SendEmail(notificationRule.ProviderID, notification.Link)
+	case "pachca":
+		return s.SendPachca(notificationRule.ProviderID, notificationRule.ChatID, notification.Link)
+	default:
+		s.logger.Warn("notification provider not found", "notification_type", notificationRule.NotificationType)
 	}
 
 	return nil
 }
 
 func (s *Sender) SendEmail(email, link string) error {
-	return s.emailSender.Send(email, link)
+	return s.emailSender.Send(email, 0, link)
+}
+
+func (s *Sender) SendPachca(providerID string, chatID int64, link string) error {
+	return s.pachcaSender.Send(providerID, chatID, link)
 }
