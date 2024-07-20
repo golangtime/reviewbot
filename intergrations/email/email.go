@@ -38,7 +38,7 @@ func NewEmailSender(logger *slog.Logger, fromEmail, user, password string) *Emai
 	}
 }
 
-func (s *EmailSender) Send(providerID, link string) error {
+func (s *EmailSender) Send(providerID string, _ int64, link string) error {
 	s.logger.Info("send email", "provider_id", providerID, "link", link)
 	message := gomail.NewMessage()
 

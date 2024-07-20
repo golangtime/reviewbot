@@ -13,22 +13,33 @@ type AddRepoResponse struct {
 	Success bool `json:"success"`
 }
 
+type RemoveRepoRequest struct {
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+}
+
+type RemoveRepoResponse struct {
+	Success bool `json:"success"`
+}
+
 type ListReposRequest struct {
 	Owner string `json:"owner"`
 }
 
 type ListReposResponse struct {
-	Repos []*Repo
+	Repos   []*Repo `json:"repos"`
+	Count   int     `json:"count"`
+	Success bool    `json:"success"`
 }
 
 type Repo struct {
+	Owner        string `json:"owner"`
 	Name         string `json:"name"`
 	Provider     string `json:"provider"`
 	MinApprovals int    `json:"min_approvals"`
 }
 
 type ListNotificationRequest struct {
-	QueueType string `json:"queue_type"`
 }
 
 type ListNotificationResponse struct {
@@ -37,12 +48,21 @@ type ListNotificationResponse struct {
 
 type AddNotificationRuleRequest struct {
 	UserID           int64  `json:"user_id"`
+	ChatID           string `json:"chat_id"`
 	NotificationType string `json:"notification_type"`
 	ProviderID       string `json:"provider_id"`
 	Priority         int    `json:"priority"`
 }
 
 type AddNotificationRuleResponse struct {
+	Success bool `json:"success"`
+}
+
+type RemoveNotitifcationRuleRequest struct {
+	ID int64 `json:"id"`
+}
+
+type RemoveNotitifcationRuleResponse struct {
 	Success bool `json:"success"`
 }
 
@@ -54,9 +74,11 @@ type ListNotificationRulesResponse struct {
 }
 
 type NotificationRule struct {
+	ID               int64  `json:"id"`
 	UserID           int64  `json:"user_id"`
 	NotificationType string `json:"notification_type"`
 	ProviderID       string `json:"provider_id"`
+	ChatID           int64  `json:"chat_id"`
 	Priority         int    `json:"priority"`
 }
 

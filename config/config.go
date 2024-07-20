@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Email     EmailConfig     `toml:"email"`
+	Pachca    PachcaConfig    `toml:"pachca"`
 	Bitbucket BitbucketConfig `toml:"bitbucket"`
 	Schedule  ScheduleConfig  `toml:"schedule"`
 }
@@ -25,8 +26,13 @@ type EmailConfig struct {
 	From     string `toml:"from"`
 }
 
+type PachcaConfig struct {
+	Token string `toml:"token"`
+}
+
 type ScheduleConfig struct {
-	Default [][3]int
+	TestMode bool     `toml:"test_mode"`
+	Default  [][3]int `toml:"default"`
 }
 
 func Load() (*Config, error) {
