@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log"
 	"log/slog"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/golangtime/reviewbot/api"
 	"github.com/golangtime/reviewbot/api/handlers"
 	"github.com/golangtime/reviewbot/bot"
 	"github.com/golangtime/reviewbot/client/bitbucket"
@@ -30,72 +28,12 @@ func StartAPI(cfg *config.Config, logger *slog.Logger, database *sql.DB, gitClie
 
 	handler := handlers.NewHandler(database, repo, logger, gitClients, cfg.Pachca.Token)
 
-	ctrl := api.NewAPIV1(database, repo)
-
 	http.HandleFunc("/repos/add", func(w http.ResponseWriter, r *http.Request) {
-		var req api.AddRepoRequest
-
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			logger.Error("request error", "error", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		err = ctrl.AddRepo(req.Owner, req.Name, req.Provider, req.MinApprovals)
-		if err != nil {
-			logger.Error("add repo error", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.AddRepoResponse{
-				Success: false,
-			}
-			json.NewEncoder(w).Encode(&resp)
-			return
-		}
-
-		resp := api.AddRepoResponse{
-			Success: true,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&resp)
+		handler.AddRepo(w, r)
 	})
 
 	http.HandleFunc("/repos/list", func(w http.ResponseWriter, r *http.Request) {
-		var req api.ListReposRequest
-
-		json.NewDecoder(r.Body).Decode(&req)
-
-		repos, err := ctrl.ListRepo(req.Owner)
-		if err != nil {
-			logger.Error("list repo error", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.ListReposResponse{
-				Success: false,
-			}
-			json.NewEncoder(w).Encode(&resp)
-			return
-		}
-
-		repoResponse := make([]*api.Repo, 0, len(repos))
-
-		for _, r := range repos {
-			repoResponse = append(repoResponse, &api.Repo{
-				Owner:        r.Owner,
-				Name:         r.Name,
-				Provider:     r.Provider,
-				MinApprovals: r.MinApprovals,
-			})
-		}
-
-		resp := api.ListReposResponse{
-			Repos:   repoResponse,
-			Count:   len(repoResponse),
-			Success: true,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&resp)
+		handler.ListRepos(w, r)
 	})
 
 	http.HandleFunc("/repos/remove", func(w http.ResponseWriter, r *http.Request) {
@@ -107,108 +45,15 @@ func StartAPI(cfg *config.Config, logger *slog.Logger, database *sql.DB, gitClie
 	})
 
 	http.HandleFunc("/notification/pending", func(w http.ResponseWriter, r *http.Request) {
-		var req api.ListNotificationRequest
-
-		json.NewDecoder(r.Body).Decode(&req)
-
-		result, err := ctrl.ListPendingNotifications()
-		if err != nil {
-			logger.Error("list notifications error", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.AddRepoResponse{
-				Success: false,
-			}
-			json.NewEncoder(w).Encode(&resp)
-			return
-		}
-
-		var response []*api.Notification
-		for _, r := range result {
-			response = append(response, &api.Notification{
-				Recepient:   r.Recepient,
-				Link:        r.Link,
-				UserID:      r.UserID,
-				CreatedAt:   r.CreatedAt,
-				ReservedFor: r.ReservedFor,
-			})
-		}
-
-		resp := api.ListNotificationResponse{
-			Notifications: response,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&resp)
+		handler.ListPendingNotifications(w, r)
 	})
 
 	http.HandleFunc("/notification/rules", func(w http.ResponseWriter, r *http.Request) {
-		var req api.ListNotificationRulesRequest
-
-		json.NewDecoder(r.Body).Decode(&req)
-
-		result, err := ctrl.ListNotificationRules()
-		if err != nil {
-			logger.Error("list notification rules error", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.AddRepoResponse{
-				Success: false,
-			}
-			json.NewEncoder(w).Encode(&resp)
-			return
-		}
-
-		var response []*api.NotificationRule
-		for _, r := range result {
-			response = append(response, &api.NotificationRule{
-				ID:               r.ID,
-				UserID:           r.UserID,
-				NotificationType: r.NotificationType,
-				ProviderID:       r.ProviderID,
-				ChatID:           r.ChatID,
-				Priority:         r.Priority,
-			})
-		}
-
-		resp := api.ListNotificationRulesResponse{
-			Result: response,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&resp)
+		handler.ListNotificationRules(w, r)
 	})
 
 	http.HandleFunc("/notification/add_rule", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "PUT" {
-			handler.UpdateNotificationRule(w, r)
-			return
-		}
-
-		var req api.AddNotificationRuleRequest
-
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			logger.Error("request error", "error", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		err = ctrl.AddNotificationRule(req.UserID, req.NotificationType, req.ProviderID, req.ChatID, req.Priority)
-		if err != nil {
-			logger.Error("add notification rule error", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			resp := api.AddRepoResponse{
-				Success: false,
-			}
-			json.NewEncoder(w).Encode(&resp)
-			return
-		}
-
-		resp := api.AddNotificationRuleResponse{
-			Success: true,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&resp)
+		handler.AddNotificationRule(w, r)
 	})
 
 	http.HandleFunc("/notification/remove_rule", func(w http.ResponseWriter, r *http.Request) {
